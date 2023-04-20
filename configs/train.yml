@@ -1,0 +1,14 @@
+midi_dir: "data/midis/"
+pickle_dir: 'data/midis_out_remi/'
+dataset_save_path: "data/data.csv"
+epochs: 10000
+batch_size: 2
+load_path:
+dropout: 0.1
+debug: False
+l_r: 1e-4
+label_smooth: 0.1
+clear_log: False
+log_dir: "log/"
+shuffle: True
+dataset_split: [.8, .1, .1]

@@ -1,0 +1,26 @@
+experiment: 'classicpiano-em256-layer6'
+
+clear_log: False
+log_dir: "log/"
+
+midi_dir: "data/output/"
+pickle_dir: 'data/output2/'
+dataset_save_path: "data/data.csv"
+max_seq: 2048
+event_dim: 388
+shuffle: True
+dataset_split: [.8, .1, .1]
+batch_size: 4
+
+h: 8
+embedding_dim: 512
+num_layers: 6
+dropout: 0.1
+l_r: 1e-4
+weight_decay: 0.0
+flash: False
+
+load_path:
+debug: False
+epochs: 10000
+label_smooth: 0.1

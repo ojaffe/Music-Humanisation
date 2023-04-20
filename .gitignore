@@ -1,0 +1,5 @@
+*.pyc
+bin
+data
+saved_models
+log

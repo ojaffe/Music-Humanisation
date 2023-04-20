@@ -1,0 +1,7 @@
+experiment: 'em512-layer6-REMI'
+max_seq: 8000
+embedding_dim: 512
+num_layers: 8
+event_dim: 388
+fp16:
+flash: Flash
