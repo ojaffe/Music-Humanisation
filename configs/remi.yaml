@@ -4,10 +4,8 @@ clear_log: False
 log_dir: "log/"
 
 midi_dir: "data/output/"
-pickle_dir: 'data/output_remi/'
 dataset_save_path: "data/data.csv"
 max_seq: 2048
-event_dim: 388
 shuffle: True
 dataset_split: [.8, .1, .1]
 batch_size: 4
@@ -24,3 +22,4 @@ load_path:
 debug: False
 epochs: 10000
 label_smooth: 0.1
+model_dir: "./saved_models/"

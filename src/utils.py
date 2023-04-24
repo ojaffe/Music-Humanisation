@@ -1,10 +1,35 @@
 import os
 import numpy as np
-from sequence import EventSeq
 import torch
 import torch.nn.functional as F
 #import torchvision
 # from custom.config import config
+import yaml
+from tqdm import tqdm
+from octuple_preprocess import encoding_to_MIDI
+import random
+
+
+def set_seed(seed: int):
+    """
+    Set the random seed for modules torch, numpy and random.
+
+    seed: random seed
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
+def load_config(path="configs/default.yaml") -> dict:
+    """
+    Loads and parses a YAML configuration file.
+    path: path to YAML configuration file
+    return: configuration dictionary
+    """
+    with open(path, "r", encoding="utf-8") as ymlfile:
+        cfg = yaml.load(ymlfile, Loader=yaml.Loader)
+    return cfg
 
 
 def find_files_by_extensions(root, exts=[]):
@@ -22,37 +47,117 @@ def find_files_by_extensions(root, exts=[]):
                 yield os.path.join(path, name)
 
 
-def event_indeces_to_midi_file(event_indeces, midi_file_name, velocity_scale=0.8):
-    event_seq = EventSeq.from_array(event_indeces)
-    note_seq = event_seq.to_note_seq()
-    for note in note_seq.notes:
-        note.velocity = int((note.velocity - 64) * velocity_scale + 64)
-    note_seq.to_midi_file(midi_file_name)
-    return len(note_seq.notes)
+def revert_example(example):
+    out = []
+    for b in example:
+        new_b = []
+        for n in b:
+            if (n - 3) < 0:
+                break
+
+            new_b.append(n - 3)
+
+        if len(new_b) == 8:
+            out.append(new_b)
+
+    return out
 
 
-def dict2params(d, f=','):
-    return f.join(f'{k}={v}' for k, v in d.items())
+def greedy_decode_octuple(mt, tokenizer, loader, num_heads, SOS_IDX, EOS_IDX, PAD_IDX, global_step, device):
+    mt.set_test()
+
+    enc = next(iter(loader))
+    enc = enc[0].unsqueeze(0)
+    enc = enc.to(device, non_blocking=True, dtype=torch.int)
+
+    prior = [[SOS_IDX]*8]
+    dec_in = torch.tensor([prior]).to(device)
+    decoded_tokens = prior
+
+    length = 2048
+    with torch.no_grad():
+        for i in tqdm(range(length)):
+            logits = mt(enc, None, dec_in, None, None)
+            decoded_example = []
+            for out in logits:
+                final_out = out[:, out.shape[1]-1, :]
+                top_token = torch.argmax(final_out).item()
+
+                decoded_example.append(top_token)
+
+            if top_token - 3 == EOS_IDX:
+                break
+
+            dec_in = torch.cat((dec_in, torch.tensor([[decoded_example]]).to(device)), dim=1)
+
+    decoded_tokens_list = dec_in.detach().tolist()[0]
+    decoded_tokens_list_rev = revert_example(decoded_tokens_list)
+    if len(decoded_tokens_list_rev) == 0:
+        return decoded_tokens_list
+
+    try:
+        midi = encoding_to_MIDI(decoded_tokens_list_rev)
+        midi.dump("bin/gen_{:}.mid".format(global_step))
+        print("Successful generation")
+    except ValueError:
+        print("Generation error")
 
 
-def params2dict(p, f=',', e='='):
-    d = {}
-    for item in p.split(f):
-        item = item.split(e)
-        if len(item) < 2:
-            continue
-        k, *v = item
-        d[k] = eval('='.join(v))
-    return d
+def greedy_decode(mt, tokenizer, loader, num_heads, SOS_IDX, EOS_IDX, PAD_IDX, global_step, device):
+    mt.set_test()
+
+    enc = next(iter(loader))
+    enc = enc[0].unsqueeze(0)
+    enc = enc.to(device, non_blocking=True, dtype=torch.int)
+
+    enc_pad_mask = build_pad_mask(enc, PAD_IDX)
+
+    prior = [SOS_IDX]
+    dec = torch.tensor([prior]).to(device)
+    decoded_tokens = prior
+
+    length = 2048
+    with torch.no_grad():
+        for i in tqdm(range(length)):
+            dec_pad_mask = build_pad_mask(dec, PAD_IDX).to(device)
+            dec_causal_mask = torch.full((num_heads, dec.shape[1], dec.shape[1]), False).to(device)
+
+            logits = mt(enc, enc_pad_mask, dec, dec_pad_mask, dec_causal_mask)
+
+            logits = logits[:, logits.shape[1]-1, :]
+            top_token = torch.argmax(logits).item()
+
+            decoded_tokens.append(top_token)
+
+            if top_token == EOS_IDX:
+                break
+
+            dec = torch.cat((dec, torch.tensor([[top_token]]).to(device)), dim=1)
+
+    try:
+        midi = tokenizer.tokens_to_midi(enc.detach().tolist(), [(0, False)])
+        midi.dump("bin/tgt_{:}.mid".format(global_step))
+
+        midi = tokenizer.tokens_to_midi([decoded_tokens], [(0, False)])
+        midi.dump("bin/gen_{:}.mid".format(global_step))
+        print("Successful generation")
+    except ValueError:
+        print("Generation error")
 
 
-def compute_gradient_norm(parameters, norm_type=2):
-    total_norm = 0
-    for p in parameters:
-        param_norm = p.grad.data.norm(norm_type)
-        total_norm += param_norm ** norm_type
-    total_norm = total_norm ** (1. / norm_type)
-    return total_norm
+def build_pad_mask(inputs, pad_idx):
+    pad_mask = (inputs == pad_idx).bool()
+
+    return pad_mask
+
+
+def build_causal_mask(inputs, num_heads):
+    batch_size, sequence_length = inputs.size()
+
+    causal_mask = torch.tril(torch.ones((sequence_length, sequence_length), dtype=torch.bool, device=inputs.device))
+    causal_mask = (causal_mask == 0)
+    causal_mask = causal_mask.repeat(batch_size * num_heads, 1, 1).bool()
+    return causal_mask
 
 
 def build_causal_pad_mask(inputs, pad_idx):

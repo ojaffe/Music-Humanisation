@@ -48,6 +48,12 @@ class MusicTransformer(torch.nn.Module):
 
     def forward(self, x, length=None, writer=None):
         if self.training or not self.infer:
+
+            pad_mask = utils.build_pad_mask(x, self.PAD_IDX)
+            decoder, w = self.Decoder(x, mask=pad_mask)
+            fc = self.fc(decoder)
+            return fc.contiguous()
+            """
             if self.flash:
                 mask = utils.build_causal_pad_mask(x, self.PAD_IDX)
                 decoder, w = self.Decoder(x, mask=mask)
@@ -58,7 +64,7 @@ class MusicTransformer(torch.nn.Module):
 
                 decoder, w = self.Decoder(x, mask=look_ahead_mask)
                 fc = self.fc(decoder)
-                return fc.contiguous() if self.training else (fc.contiguous(), [weight.contiguous() for weight in w])
+                return fc.contiguous() if self.training else (fc.contiguous(), [weight.contiguous() for weight in w])"""
         else:
             return self.generate(x, length, None).contiguous().tolist()
 
@@ -71,8 +77,6 @@ class MusicTransformer(torch.nn.Module):
         #print(config)
         #print(length)
         for i in range(length):
-            if decode_array.size(1) >= config.threshold_len:
-                decode_array = decode_array[:, 1:]
             _, _, look_ahead_mask = \
                 utils.get_masked_with_pad_tensor(decode_array, decode_array, pad_token=self.PAD_IDX)
 

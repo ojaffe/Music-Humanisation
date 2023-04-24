@@ -1,0 +1,30 @@
+experiment: 'md-cust-remi-em256-layer6-bs4'
+
+seed: 42
+clear_log: False
+log_dir: "log/"
+
+midi_dir: "data/midis/"
+dataset_save_path: "data/data.csv"
+max_example_len: 5500
+shuffle: True
+dataset_split: [.8, .1, .1]
+batch_size: 1
+octuple: True
+octuple_em_sizes: [1027, 131, 5, 131, 131, 36, 257, 52]
+
+num_heads: 8
+d_model: 256
+num_layers: 6
+ffn_hidden: 128
+dropout: 0.1
+l_r: 1e-4
+weight_decay: 0.0
+flash: True
+
+load_path:
+debug: False
+epochs: 10000
+label_smooth: 0.1
+model_dir: "saved_models/"
+grad_accum: 1

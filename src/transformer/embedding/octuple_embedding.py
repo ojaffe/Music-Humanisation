@@ -6,8 +6,8 @@
 from torch import nn
 import torch
 
-from models.embedding.positional_encoding import PositionalEncoding
-from models.embedding.token_embeddings import TokenEmbedding
+from transformer.embedding.positional_encoding import PositionalEncoding
+from transformer.embedding.token_embeddings import TokenEmbedding
 
 
 class OctupleEmbedding(nn.Module):
@@ -35,7 +35,9 @@ class OctupleEmbedding(nn.Module):
         self.tok_emb6 = TokenEmbedding(embedding_sizes[6], d_embed, PAD_IDX=PAD_IDX)
         self.tok_emb7 = TokenEmbedding(embedding_sizes[7], d_embed, PAD_IDX=PAD_IDX)
 
-        self.pos_emb = PositionalEncoding(d_model, drop_prob, max_len)
+        self.fc = nn.Linear(d_model, d_model)
+
+        self.pos_emb = PositionalEncoding(d_model, max_len, device)
         self.drop_out = nn.Dropout(p=drop_prob)
 
     def forward(self, x):
@@ -48,9 +50,9 @@ class OctupleEmbedding(nn.Module):
         x6_emb = self.tok_emb6(x[:, :, 6])
         x7_emb = self.tok_emb7(x[:, :, 7])
 
-        # TODO LINEAR LAYER
-
         emb_cat = torch.cat((x0_emb, x1_emb, x2_emb, x3_emb, x4_emb, x5_emb, x6_emb, x7_emb), dim=2)
 
-        pos_emb = self.pos_emb(emb_cat)
-        return self.drop_out(emb_cat + pos_emb)
+        lin = self.fc(emb_cat)
+        
+        pos_emb = self.pos_emb(x[:, :, 0])
+        return self.drop_out(lin + pos_emb)

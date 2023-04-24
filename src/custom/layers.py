@@ -189,7 +189,8 @@ class EncoderLayer(torch.nn.Module):
         if flash:
             self.mha = CausalSelfAttention(num_heads=h, embed_dimension=d_model, bias=False, is_causal=False, dropout=rate)
         else:
-            self.rga = RelativeGlobalAttention(h=h, d=d_model, max_seq=max_seq, add_emb=additional)
+            #self.rga = RelativeGlobalAttention(h=h, d=d_model, max_seq=max_seq, add_emb=additional)
+            self.rga = torch.nn.MultiheadAttention(embed_dim=self.d_model, num_heads=h, batch_first=True)
 
         self.FFN_pre = torch.nn.Linear(self.d_model, self.d_model//2)
         self.FFN_suf = torch.nn.Linear(self.d_model//2, self.d_model)
@@ -205,7 +206,8 @@ class EncoderLayer(torch.nn.Module):
             attn_out = self.mha(x, mask)
             w = None
         else:
-            attn_out, w = self.rga([x, x, x], mask)
+            #attn_out, w = self.rga([x, x, x], mask)
+            attn_out, w = self.rga(x, x, x, key_padding_mask=mask, is_causal=True)
         
         attn_out = self.dropout1(attn_out)
         out1 = self.layernorm1(attn_out+x)

@@ -9,6 +9,7 @@ from miditok import REMI
 from tqdm import tqdm
 from miditoolkit import MidiFile
 import utils
+from octuple_preprocess import MIDI_to_encoding
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -17,12 +18,13 @@ from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler
 
 
 class ASAPDataset(Dataset):
-    def __init__(self, config, tokenizer, SOS_IDX, EOS_IDX, PAD_IDX):
-        self.midi_dir = config.midi_dir
+    def __init__(self, cfg, tokenizer, SOS_IDX, EOS_IDX, PAD_IDX):
+        self.midi_dir = cfg.get("midi_dir")
         self.tokenizer = tokenizer
+        self.octuple = cfg.get("octuple")
 
-        self.dataset_save_path = config.dataset_save_path
-        self.max_seq = config.max_seq - 2
+        self.dataset_save_path = cfg.get("dataset_save_path")
+        self.max_example_len = cfg.get("max_example_len") - 2
 
         self.SOS_IDX = SOS_IDX
         self.EOS_IDX = EOS_IDX
@@ -45,13 +47,17 @@ class ASAPDataset(Dataset):
             valid_paths = []
             for idx, path in tqdm(enumerate(midi_paths)):
                 try:
-                    midi = MidiFile(path)
-                    tokens = self.tokenizer(midi)[0]
+                    if self.octuple:
+                        midi = MidiFile(path)
+                        tokens = self.tokenizer(midi)
+
+                        """if len(tokens) + 2 > self.max_example_len:  # + 2 for SOS and EOS tokens
+                            continue"""
+                    else:
+                        midi = MidiFile(path)
+                        tokens = self.tokenizer(midi)[0]
                 except (IOError, IndexError):
                     continue
-
-                """if len(tokens) + 2 > self.max_seq:  # + 2 for SOS and EOS tokens
-                    continue"""
 
                 valid_paths.append(path)
 
@@ -64,21 +70,49 @@ class ASAPDataset(Dataset):
         return len(self.data)
 
 
+    def _construct_and_shift(self, tokens, SOS_IDX, EOS_IDX):
+        output = []
+        output += [[SOS_IDX] * 8]
+
+        for bar in tokens:
+            bar_shifted = [i + 3 for i in bar]
+            output += [bar_shifted]
+
+        output += [[EOS_IDX]*8]
+        return output
+
+
     def __getitem__(self, idx):
         path = self.data.iloc[idx][0]
 
         midi = MidiFile(path)
-        tokens = self.tokenizer(midi)[0]
+        tokens = self.tokenizer(midi)
 
-        # Sample subset of fixed length
-        if self.max_seq + 2 <= len(tokens):
-            start = random.randrange(0, len(tokens) - self.max_seq)
-            tokens = tokens[start:start + self.max_seq]
-            tokens = [self.SOS_IDX] + tokens + [self.EOS_IDX]
-        else:
-            tokens = [self.SOS_IDX] + tokens + [self.EOS_IDX]
-            while len(tokens) < self.max_seq:
-                tokens.append(self.PAD_IDX)
+        if self.octuple:
+            oct_max_example_len = self.max_example_len // 5
+            oct_max_example_len = self.max_example_len
+            if oct_max_example_len + 2 <= len(tokens):
+                start = random.randrange(0, len(tokens) - oct_max_example_len)
+                tokens = tokens[start:start + oct_max_example_len]
+                tokens = self._construct_and_shift(tokens, self.SOS_IDX, self.PAD_IDX)
+            else:
+                tokens = self._construct_and_shift(tokens, self.SOS_IDX, self.PAD_IDX)
+                while len(tokens) < oct_max_example_len:
+                    tokens.append([self.PAD_IDX]*8)
+
+        else:  # Sample subset of fixed length
+            try:
+                tokens = tokens[0]
+            except IndexError:
+                print("Error tokenizing:\n", tokens)
+            if self.max_example_len + 2 <= len(tokens):
+                start = random.randrange(0, len(tokens) - self.max_example_len)
+                tokens = tokens[start:start + self.max_example_len]
+                tokens = [self.SOS_IDX] + tokens + [self.EOS_IDX]
+            else:
+                tokens = [self.SOS_IDX] + tokens + [self.EOS_IDX]
+                while len(tokens) < self.max_example_len:
+                    tokens.append(self.PAD_IDX)
 
         return torch.tensor(tokens)
 
@@ -126,26 +160,30 @@ def build_tokenizer():
     return tokenizer, PAD_IDX, SOS_IDX, EOS_IDX, SEP_IDX
 
 
-def load_data(config):
-    tokenizer, PAD_IDX, SOS_IDX, EOS_IDX, SEP_IDX = build_tokenizer()
-    vocab_size = len(tokenizer.vocab._token_to_event)
+def load_data(cfg):
     SOS_IDX = 0
     EOS_IDX = 1
     PAD_IDX = 2
-
-    dataset = ASAPDataset(config, tokenizer, SOS_IDX, EOS_IDX, PAD_IDX)
+    if cfg.get("octuple"):
+        tokenizer = MIDI_to_encoding
+        vocab_size = -1
+    else:
+        tokenizer, PAD_IDX, SOS_IDX, EOS_IDX, SEP_IDX = build_tokenizer()
+        vocab_size = len(tokenizer.vocab._token_to_event)
+        
+    dataset = ASAPDataset(cfg, tokenizer, SOS_IDX, EOS_IDX, PAD_IDX)
 
     # Create splits
     indices = list(range(len(dataset)))
-    if config.shuffle:
+    if cfg.get("shuffle"):
         np.random.shuffle(indices)
 
-    train_prop, val_prop, test_prop = config.dataset_split
+    train_prop, val_prop, test_prop = cfg.get("dataset_split")
     train_split = int(np.floor(train_prop * len(dataset)))
     val_split = train_split + int(np.floor(val_prop * len(dataset)))
     train_indices, val_indices, test_indices = indices[:train_split], indices[train_split:val_split], indices[val_split:]
 
-    batch_size = config.batch_size
+    batch_size = cfg.get("batch_size")
 
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=SubsetRandomSampler(train_indices), collate_fn=PadCollate(PAD_IDX))
     val_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=SequentialSampler(val_indices), collate_fn=PadCollate(PAD_IDX))
