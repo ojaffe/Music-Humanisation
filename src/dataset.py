@@ -24,7 +24,7 @@ class ASAPDataset(Dataset):
         self.octuple = cfg.get("octuple")
 
         self.dataset_save_path = cfg.get("dataset_save_path")
-        self.max_example_len = cfg.get("max_example_len") - 2
+        self.max_example_len = cfg.get("max_example_len")
 
         self.SOS_IDX = SOS_IDX
         self.EOS_IDX = EOS_IDX
@@ -89,16 +89,18 @@ class ASAPDataset(Dataset):
         tokens = self.tokenizer(midi)
 
         if self.octuple:
-            oct_max_example_len = self.max_example_len // 5
             oct_max_example_len = self.max_example_len
-            if oct_max_example_len + 2 <= len(tokens):
-                start = random.randrange(0, len(tokens) - oct_max_example_len)
-                tokens = tokens[start:start + oct_max_example_len]
-                tokens = self._construct_and_shift(tokens, self.SOS_IDX, self.PAD_IDX)
-            else:
+            if len(tokens) + 2 <= oct_max_example_len:
                 tokens = self._construct_and_shift(tokens, self.SOS_IDX, self.PAD_IDX)
                 while len(tokens) < oct_max_example_len:
                     tokens.append([self.PAD_IDX]*8)
+            else:
+                try:
+                    start = random.randrange(0, len(tokens) - oct_max_example_len - 2)
+                except ValueError:
+                    start = 0
+                tokens = tokens[start:start + oct_max_example_len - 2]
+                tokens = self._construct_and_shift(tokens, self.SOS_IDX, self.PAD_IDX)
 
         else:  # Sample subset of fixed length
             try:
