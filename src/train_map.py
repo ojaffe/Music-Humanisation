@@ -77,6 +77,10 @@ def train(cfg_file):
     for e in range(cfg.get("epochs")):
         print(e)
 
+        train_loss = 0
+        avg_loss = []
+        avg_acc = []
+        avg_time = []
         for batch_idx, batch in tqdm(enumerate(train_loader)):
             scheduler.optimizer.zero_grad()
 
@@ -94,17 +98,23 @@ def train(cfg_file):
                 mt.set_train()
                 sample = mt.forward(tokens, enc_pad_mask, dec_in, dec_pad_mask, dec_causal_mask)
 
-                loss = 0
-                acc = []
+                loss_oct = 0
+                acc_oct = []
                 for idx, out in enumerate(sample):
                     dec_out_token = dec_out[:, :, idx]
                     metrics = metric_set[idx](out, dec_out_token)
-                    loss += metrics['loss']
-                    acc.append(metrics['accuracy'])
 
-                end_time = time.time()
+                    train_loss += metrics['loss']
 
-                acc = sum(acc) / len(acc)
+                    loss_oct += metrics['loss']
+                    acc_oct.append(metrics['accuracy'])
+
+                pass_time = time.time() - start_time
+
+                acc_oct_avg = sum(acc_oct) / len(acc_oct)
+                avg_loss.append(loss_oct)
+                avg_acc.append(acc_oct_avg)
+                avg_time.append(pass_time)
             else:
                 enc_pad_mask = build_pad_mask(tokens, PAD_IDX)
                 dec_pad_mask = build_pad_mask(dec_in, PAD_IDX)
@@ -114,24 +124,32 @@ def train(cfg_file):
                 mt.set_train()
                 sample = mt.forward(tokens, enc_pad_mask, dec_in, dec_pad_mask, dec_causal_mask)
                 metrics = metric_set(sample, dec_out)
-                loss = metrics['loss']
+                train_loss += metrics['loss']
+                pass_time = time.time() - start_time
 
-                acc = metrics['accuracy']
+                avg_loss.append(metrics['loss'])
+                avg_acc.append(metrics['accuracy'])
+                avg_time.append(pass_time)
 
-            if batch_idx % cfg.get("grad_accum") == 0:
-                if not loss.item() == None:
-                    loss.backward()
+            # Gradient accumalation
+            if batch_idx % cfg.get("grad_accum") == 0 and batch_idx != 0:
+                if not train_loss.item() == None:
+                    train_loss.backward()
                     scheduler.step()
-                    end_time = time.time()
+
+                    train_summary_writer.add_scalar('loss', sum(avg_loss) / len(avg_loss), global_step=global_step)
+                    train_summary_writer.add_scalar('accuracy', sum(avg_acc) / len(avg_acc), global_step=global_step)
+                    train_summary_writer.add_scalar('learning_rate', scheduler.rate(), global_step=global_step)
+                    train_summary_writer.add_scalar('iter_p_sec', sum(avg_time) / len(avg_time), global_step=global_step)
+
+                    train_loss = 0
+                    avg_loss = []
+                    avg_acc = []
+                    avg_time = []
 
             if cfg.get("debug"):
-                print("[Loss]: {}".format(loss))
+                print("[Loss]: {}".format(train_loss))
                 print(tokens.shape[1], torch.cuda.max_memory_allocated() / 1e9)
-
-            train_summary_writer.add_scalar('loss', loss.item(), global_step=global_step)
-            train_summary_writer.add_scalar('accuracy', acc, global_step=global_step)
-            train_summary_writer.add_scalar('learning_rate', scheduler.rate(), global_step=global_step)
-            train_summary_writer.add_scalar('iter_p_sec', end_time-start_time, global_step=global_step)
 
             # Generate example
             if global_step % 200 == 0 and batch_idx != 0:
@@ -141,7 +159,7 @@ def train(cfg_file):
                     greedy_decode(mt, tokenizer, test_loader, cfg.get("num_heads"), SOS_IDX, EOS_IDX, PAD_IDX, global_step, device)
 
             # Validation loop
-            if global_step % 200 == 0:
+            if global_step % 200 == 0 and batch_idx != 0:
                 mt.set_eval()
                 val_loss = 0
                 val_acc = 0
@@ -213,8 +231,8 @@ def train(cfg_file):
             torch.cuda.empty_cache()
             global_step += 1
 
-        if e % 1 == 0:
-            torch.save(mt.state_dict(), cfg.get("model_dir")+'/train-{}.pth'.format(e))
+            if batch_idx % 1000 == 0:
+                torch.save(mt.state_dict(), cfg.get("model_dir")+'/train-{}-{}.pth'.format(e, batch_idx))
 
     torch.save(mt.state_dict(), cfg.get("model_dir")+'/final.pth'.format(global_step))
     eval_summary_writer.close()
