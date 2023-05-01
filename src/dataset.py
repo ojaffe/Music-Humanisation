@@ -95,10 +95,7 @@ class ASAPDataset(Dataset):
                 while len(tokens) < oct_max_example_len:
                     tokens.append([self.PAD_IDX]*8)
             else:
-                try:
-                    start = random.randrange(0, len(tokens) - oct_max_example_len - 2)
-                except ValueError:
-                    start = 0
+                start = random.randrange(0, len(tokens) - (oct_max_example_len - 2))
                 tokens = tokens[start:start + oct_max_example_len - 2]
                 tokens = self._construct_and_shift(tokens, self.SOS_IDX, self.PAD_IDX)
 
@@ -157,9 +154,8 @@ def build_tokenizer():
     PAD_IDX = 0
     SOS_IDX = 1
     EOS_IDX = 2
-    SEP_IDX = 4
 
-    return tokenizer, PAD_IDX, SOS_IDX, EOS_IDX, SEP_IDX
+    return tokenizer, PAD_IDX, SOS_IDX, EOS_IDX
 
 
 def load_data(cfg):
@@ -170,7 +166,7 @@ def load_data(cfg):
         tokenizer = MIDI_to_encoding
         vocab_size = -1
     else:
-        tokenizer, PAD_IDX, SOS_IDX, EOS_IDX, SEP_IDX = build_tokenizer()
+        tokenizer, PAD_IDX, SOS_IDX, EOS_IDX = build_tokenizer()
         vocab_size = len(tokenizer.vocab._token_to_event)
         
     dataset = ASAPDataset(cfg, tokenizer, SOS_IDX, EOS_IDX, PAD_IDX)

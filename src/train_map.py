@@ -15,6 +15,7 @@ import datetime
 import time
 import shutil
 import argparse
+import math
 
 import torch
 import torch.optim as optim
@@ -39,11 +40,16 @@ def train(cfg_file):
                      EOS_IDX=EOS_IDX,
                      PAD_IDX=PAD_IDX,
                      device=device).to(device)
-    #mt.load_state_dict(torch.load("saved_models/train-200.pth"))
+    if False:
+        mt.load_state_dict(torch.load("saved_models/train-3-0.pth"))
+    else:
+        for p in mt.parameters():
+            if p.dim() > 1:
+                torch.nn.init.xavier_uniform_(p)
 
     learning_rate = cfg.get("l_r")
-    opt = optim.Adam(mt.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9, weight_decay=cfg.get("weight_decay"))
-    scheduler = CustomSchedule(cfg.get("d_model"), optimizer=opt)
+    opt = optim.Adam(mt.parameters(), lr=cfg.get("l_r"), betas=(0.9, 0.98), eps=1e-9, weight_decay=cfg.get("weight_decay"))
+    #scheduler = CustomSchedule(cfg.get("d_model"), optimizer=opt)
 
     # init metric set
     if cfg.get("octuple"):
@@ -82,7 +88,8 @@ def train(cfg_file):
         avg_acc = []
         avg_time = []
         for batch_idx, batch in tqdm(enumerate(train_loader)):
-            scheduler.optimizer.zero_grad()
+            #scheduler.optimizer.zero_grad()
+            opt.zero_grad()
 
             tokens = batch
             tokens = tokens.to(device, non_blocking=True, dtype=torch.int)
@@ -133,19 +140,27 @@ def train(cfg_file):
 
             # Gradient accumalation
             if batch_idx % cfg.get("grad_accum") == 0 and batch_idx != 0:
-                if not train_loss.item() == None:
+                if train_loss.item() == None or math.isnan(train_loss.item()):
+                    print("Loss error")
+                    train_loss = 0
+                    avg_loss = []
+                    avg_acc = []
+                    avg_time = []
+                else:
                     train_loss.backward()
-                    scheduler.step()
+                    torch.nn.utils.clip_grad_norm_(mt.parameters(), 0.1)
+                    opt.step()
+                    #scheduler.step()
 
                     train_summary_writer.add_scalar('loss', sum(avg_loss) / len(avg_loss), global_step=global_step)
                     train_summary_writer.add_scalar('accuracy', sum(avg_acc) / len(avg_acc), global_step=global_step)
-                    train_summary_writer.add_scalar('learning_rate', scheduler.rate(), global_step=global_step)
+                    #train_summary_writer.add_scalar('learning_rate', scheduler.rate(), global_step=global_step)
                     train_summary_writer.add_scalar('iter_p_sec', sum(avg_time) / len(avg_time), global_step=global_step)
 
                     train_loss = 0
                     avg_loss = []
                     avg_acc = []
-                    avg_time = []
+                    avg_time = []                    
 
             if cfg.get("debug"):
                 print("[Loss]: {}".format(train_loss))
@@ -222,11 +237,6 @@ def train(cfg_file):
                 eval_summary_writer.add_scalar('loss', val_loss_avg, global_step=global_step)
                 eval_summary_writer.add_scalar('accuracy', val_acc_avg, global_step=global_step)
                 #eval_summary_writer.add_histogram("logits_bucket", eval_metrics['bucket'], global_step=global_step)
-
-                """print('\n====================================================')
-                print('Epoch/Batch: {}/{}'.format(e, batch_idx))
-                print('Train >>>> Loss: {:6.6}, Accuracy: {}'.format(loss.item(), acc))
-                print('Eval >>>> Loss: {:6.6}, Accuracy: {}'.format(valafwf_loss_avg, eval_metrics['accuracy']))"""
 
             torch.cuda.empty_cache()
             global_step += 1

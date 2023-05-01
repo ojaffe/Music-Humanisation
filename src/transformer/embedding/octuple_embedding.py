@@ -26,11 +26,18 @@ class OctupleEmbedding(nn.Module):
         super(OctupleEmbedding, self).__init__()
 
         d_embed = int(d_model / 8)
-        self.tok_emb0 = TokenEmbedding(embedding_sizes[0], d_embed, PAD_IDX=PAD_IDX)
+
+        # Decrease dimensionality of program, since always piano
+        program_d_embed = 4
+        pitch_d_embed = ((3 * d_embed) - program_d_embed) // 2
+        dur_d_embed = ((3 * d_embed) - program_d_embed) - pitch_d_embed
+
+        d_embed = int(d_model / 8)
+        self.tok_emb0 = TokenEmbedding(embedding_sizes[0], program_d_embed, PAD_IDX=PAD_IDX)
         self.tok_emb1 = TokenEmbedding(embedding_sizes[1], d_embed, PAD_IDX=PAD_IDX)
         self.tok_emb2 = TokenEmbedding(embedding_sizes[2], d_embed, PAD_IDX=PAD_IDX)
-        self.tok_emb3 = TokenEmbedding(embedding_sizes[3], d_embed, PAD_IDX=PAD_IDX)
-        self.tok_emb4 = TokenEmbedding(embedding_sizes[4], d_embed, PAD_IDX=PAD_IDX)
+        self.tok_emb3 = TokenEmbedding(embedding_sizes[3], pitch_d_embed, PAD_IDX=PAD_IDX)
+        self.tok_emb4 = TokenEmbedding(embedding_sizes[4], dur_d_embed, PAD_IDX=PAD_IDX)
         self.tok_emb5 = TokenEmbedding(embedding_sizes[5], d_embed, PAD_IDX=PAD_IDX)
         self.tok_emb6 = TokenEmbedding(embedding_sizes[6], d_embed, PAD_IDX=PAD_IDX)
         self.tok_emb7 = TokenEmbedding(embedding_sizes[7], d_embed, PAD_IDX=PAD_IDX)
