@@ -9,7 +9,7 @@ We recommend pretraining the decoder on a large dataset, then finetuning on a mu
 # Training
 Use the config file to change the dataset, architecture, and training procedure. Notably, you can change how often music is generated through training. Once you have prepared some config file named `x.yaml`, run the following to train:
 ```
-python3 train/train.py configs/x.yaml
+python3 src/train_map.py configs/x.yaml
 ```
 
 Loss, accuracy, and other metrics are logged using `tensorboard`. Some metrics are used from [this research](https://github.com/jason9693/MusicTransformer-pytorch). To view this, run:
